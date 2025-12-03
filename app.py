@@ -90,7 +90,6 @@ def initialize_collectors():
     
     return census, fred, osm, city, valid
 
-@st.cache_data
 def load_sample_data(city_selection="All California"):
     """Load sample neighborhood data for demonstration."""
     np.random.seed(42)
@@ -207,10 +206,6 @@ def load_sample_data(city_selection="All California"):
         ), axis=1
     )
     
-    # Calculate value scores
-    analyzer = NeighborhoodAnalyzer()
-    df = analyzer.rank_neighborhoods(df)
-    
     return df
 
 def main():
@@ -305,17 +300,19 @@ def main():
         st.info("🔧 Connect to real APIs by adding your API keys to the .env file")
         neighborhoods_df = load_sample_data(city_choice)
     
+    # Apply user weights to calculate value scores
+    analyzer = NeighborhoodAnalyzer()
+    if weights:
+        neighborhoods_df = analyzer.rank_neighborhoods(neighborhoods_df, weights)
+    else:
+        neighborhoods_df = analyzer.rank_neighborhoods(neighborhoods_df)
+    
     # NEW FEATURE 1: Top 3 Quick Recommendations (above tabs)
     st.markdown("---")
     st.subheader("⭐ Your Top 3 Neighborhoods")
     
-    analyzer = NeighborhoodAnalyzer()
-    if weights:
-        top_3_df = analyzer.rank_neighborhoods(neighborhoods_df.copy(), weights)
-    else:
-        top_3_df = neighborhoods_df.copy()
-    
-    top_3 = top_3_df[top_3_df['median_rent'] <= budget].head(3)
+    # neighborhoods_df already has user weights applied
+    top_3 = neighborhoods_df[neighborhoods_df['median_rent'] <= budget].head(3)
     
     if not top_3.empty:
         cols = st.columns(3)
@@ -424,10 +421,7 @@ def main():
         
         analyzer = NeighborhoodAnalyzer()
         
-        # Recalculate with user weights
-        if weights:
-            neighborhoods_df = analyzer.rank_neighborhoods(neighborhoods_df, weights)
-        
+        # neighborhoods_df already has user weights applied
         best_neighborhoods = analyzer.find_best_value_neighborhoods(
             neighborhoods_df, budget, top_n=10
         )
