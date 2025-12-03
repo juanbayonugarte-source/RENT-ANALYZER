@@ -1,17 +1,33 @@
 """Configuration management for the Rental Value Analyzer."""
 import os
-from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+# Try to load environment variables from .env file (for local development)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # If python-dotenv is not available, skip it (will use env vars or Streamlit secrets)
+    pass
+
+def _get_secret(key, default=None):
+    """Get secret from Streamlit secrets or environment variables."""
+    try:
+        import streamlit as st
+        # Try Streamlit secrets first (for cloud deployment)
+        if hasattr(st, 'secrets') and key in st.secrets:
+            return st.secrets[key]
+    except (ImportError, FileNotFoundError, KeyError):
+        pass
+    # Fall back to environment variables (for local development)
+    return os.getenv(key, default)
 
 class Config:
     """Application configuration."""
     
-    # API Keys
-    CENSUS_API_KEY = os.getenv('CENSUS_API_KEY')
-    FRED_API_KEY = os.getenv('FRED_API_KEY')
-    CITY_DATA_API_KEY = os.getenv('CITY_DATA_API_KEY')
+    # API Keys - dynamically loaded from secrets or env vars
+    CENSUS_API_KEY = _get_secret('CENSUS_API_KEY')
+    FRED_API_KEY = _get_secret('FRED_API_KEY')
+    CITY_DATA_API_KEY = _get_secret('CITY_DATA_API_KEY')
     
     # Default settings
     DEFAULT_STATE = os.getenv('DEFAULT_STATE', 'CA')
