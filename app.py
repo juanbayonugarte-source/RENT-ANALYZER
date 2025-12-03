@@ -261,6 +261,27 @@ def main():
     safety_weight = st.sidebar.slider("Safety", 0, 100, 20) / 100
     growth_weight = st.sidebar.slider("Growth Potential", 0, 100, 10) / 100
     
+    # NEW FEATURE 3: Rent-to-Income Stress Test
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("💰 Rent Stress Test")
+    user_monthly_income = st.sidebar.number_input(
+        "Your Monthly Income ($)",
+        min_value=0,
+        max_value=50000,
+        value=5000,
+        step=500,
+        help="Enter your gross monthly income"
+    )
+    
+    # NEW FEATURE 2: Simple vs Advanced Mode Toggle
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("⚙️ Display Mode")
+    advanced_mode = st.sidebar.checkbox(
+        "Advanced Mode",
+        value=True,
+        help="Show detailed analysis and all metrics"
+    )
+    
     # Normalize weights to sum to 1
     total_weight = (affordability_weight + amenities_weight + 
                    transit_weight + safety_weight + growth_weight)
@@ -283,6 +304,55 @@ def main():
     else:
         st.info("🔧 Connect to real APIs by adding your API keys to the .env file")
         neighborhoods_df = load_sample_data(city_choice)
+    
+    # NEW FEATURE 1: Top 3 Quick Recommendations (above tabs)
+    st.markdown("---")
+    st.subheader("⭐ Your Top 3 Neighborhoods")
+    
+    analyzer = NeighborhoodAnalyzer()
+    if weights:
+        top_3_df = analyzer.rank_neighborhoods(neighborhoods_df.copy(), weights)
+    else:
+        top_3_df = neighborhoods_df.copy()
+    
+    top_3 = top_3_df[top_3_df['median_rent'] <= budget].head(3)
+    
+    if not top_3.empty:
+        cols = st.columns(3)
+        for idx, (_, neighborhood) in enumerate(top_3.iterrows()):
+            with cols[idx]:
+                # NEW FEATURE 3: Calculate stress level
+                if user_monthly_income > 0:
+                    rent_ratio = (neighborhood['median_rent'] / user_monthly_income) * 100
+                    if rent_ratio <= 25:
+                        stress_color = "🟢"
+                        stress_label = "Low Stress"
+                    elif rent_ratio <= 30:
+                        stress_color = "🟡"
+                        stress_label = "Moderate"
+                    elif rent_ratio <= 40:
+                        stress_color = "🟠"
+                        stress_label = "High Stress"
+                    else:
+                        stress_color = "🔴"
+                        stress_label = "Very High"
+                else:
+                    stress_color = "⚪"
+                    stress_label = "N/A"
+                    rent_ratio = 0
+                
+                st.markdown(f"""
+                <div style='background-color: #F0F9FF; padding: 1rem; border-radius: 0.5rem; border-left: 4px solid #3B82F6;'>
+                    <h4>#{idx+1} {neighborhood['name']}</h4>
+                    <p><b>Rent:</b> ${neighborhood['median_rent']:.0f}/mo</p>
+                    <p><b>Value Score:</b> {neighborhood['value_score']:.1f}/100</p>
+                    <p><b>Stress Level:</b> {stress_color} {stress_label} ({rent_ratio:.1f}%)</p>
+                </div>
+                """, unsafe_allow_html=True)
+    else:
+        st.warning("No neighborhoods found within your budget. Try increasing your budget.")
+    
+    st.markdown("---")
     
     # Main content
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
@@ -332,18 +402,21 @@ def main():
         st.markdown("---")
         
         # Visualizations
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("Affordability Analysis")
-            viz = Visualizer()
-            fig = viz.create_affordability_scatter(neighborhoods_df)
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            st.subheader("Rent Distribution")
-            fig = viz.create_distribution_plot(neighborhoods_df, 'median_rent')
-            st.plotly_chart(fig, use_container_width=True)
+        if advanced_mode:
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("Affordability Analysis")
+                viz = Visualizer()
+                fig = viz.create_affordability_scatter(neighborhoods_df)
+                st.plotly_chart(fig, use_container_width=True)
+            
+            with col2:
+                st.subheader("Rent Distribution")
+                fig = viz.create_distribution_plot(neighborhoods_df, 'median_rent')
+                st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("💡 Enable Advanced Mode in the sidebar to see detailed charts and analysis.")
     
     # Tab 2: Top Neighborhoods
     with tab2:
@@ -396,26 +469,40 @@ def main():
                     with col5:
                         st.caption(f"📈 Growth: {neighborhood['growth_potential']:.0f}")
                     
+                    # NEW FEATURE 3: Show stress test for each neighborhood
+                    if user_monthly_income > 0:
+                        rent_ratio = (neighborhood['median_rent'] / user_monthly_income) * 100
+                        if rent_ratio <= 25:
+                            st.success(f"🟢 Low Stress: {rent_ratio:.1f}% of income")
+                        elif rent_ratio <= 30:
+                            st.info(f"🟡 Moderate: {rent_ratio:.1f}% of income")
+                        elif rent_ratio <= 40:
+                            st.warning(f"🟠 High Stress: {rent_ratio:.1f}% of income")
+                        else:
+                            st.error(f"🔴 Very High Stress: {rent_ratio:.1f}% of income")
+                    
                     st.markdown("---")
             
             # Comparison chart
-            st.subheader("📊 Value Comparison")
-            viz = Visualizer()
-            fig = viz.create_value_comparison_chart(best_neighborhoods, 'value_score', top_n=10)
-            st.plotly_chart(fig, use_container_width=True)
+            if advanced_mode:
+                st.subheader("📊 Value Comparison")
+                viz = Visualizer()
+                fig = viz.create_value_comparison_chart(best_neighborhoods, 'value_score', top_n=10)
+                st.plotly_chart(fig, use_container_width=True)
             
             # Data table
-            st.subheader("📋 Detailed Data")
-            display_cols = [
-                'name', 'median_rent', 'median_income', 'affordability',
-                'amenity_score', 'transit_score', 'safety_score',
-                'value_score', 'rank'
-            ]
-            st.dataframe(
-                best_neighborhoods[display_cols].round(1),
-                use_container_width=True,
-                hide_index=True
-            )
+            if advanced_mode:
+                st.subheader("📋 Detailed Data")
+                display_cols = [
+                    'name', 'median_rent', 'median_income', 'affordability',
+                    'amenity_score', 'transit_score', 'safety_score',
+                    'value_score', 'rank'
+                ]
+                st.dataframe(
+                    best_neighborhoods[display_cols].round(1),
+                    use_container_width=True,
+                    hide_index=True
+                )
     
     # Tab 3: Detailed Analysis
     with tab3:
@@ -459,8 +546,39 @@ def main():
         
         st.markdown("---")
         
+        # NEW FEATURE 3: Rent Stress Analysis for Selected Neighborhood
+        if user_monthly_income > 0:
+            st.subheader("💰 Rent Stress Analysis")
+            rent_ratio = (neighborhood_data['median_rent'] / user_monthly_income) * 100
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Your Monthly Income", f"${user_monthly_income:,.0f}")
+            with col2:
+                st.metric("Median Rent", f"${neighborhood_data['median_rent']:,.0f}")
+            with col3:
+                if rent_ratio <= 30:
+                    st.metric("Rent-to-Income Ratio", f"{rent_ratio:.1f}%", delta="Healthy", delta_color="normal")
+                else:
+                    st.metric("Rent-to-Income Ratio", f"{rent_ratio:.1f}%", delta="High", delta_color="inverse")
+            
+            # Stress indicator
+            if rent_ratio <= 25:
+                st.success("🟢 **Low Stress**: Your rent is well within the recommended 30% guideline.")
+            elif rent_ratio <= 30:
+                st.info("🟡 **Moderate**: Your rent is at the recommended 30% guideline.")
+            elif rent_ratio <= 40:
+                st.warning("🟠 **High Stress**: Your rent exceeds the recommended 30% guideline.")
+            else:
+                st.error("🔴 **Very High Stress**: Your rent significantly exceeds safe levels.")
+        
+        st.markdown("---")
+        
         # Cost comparison
-        st.subheader("Cost Comparison")
+        if advanced_mode:
+            st.subheader("Cost Comparison")
+        else:
+            st.subheader("Quick Summary")
         col1, col2, col3 = st.columns(3)
         
         avg_rent = neighborhoods_df['median_rent'].mean()
@@ -519,91 +637,98 @@ def main():
         st.markdown("---")
         
         # Emerging neighborhoods
-        st.subheader("🚀 Emerging Neighborhoods")
-        st.markdown("*High growth potential areas that may offer good value*")
-        
-        emerging = analyzer.identify_emerging_neighborhoods(neighborhoods_df)
-        
-        if not emerging.empty:
+        if advanced_mode:
+            st.subheader("🚀 Emerging Neighborhoods")
+            st.markdown("*High growth potential areas that may offer good value*")
+            
+            emerging = analyzer.identify_emerging_neighborhoods(neighborhoods_df)
+            
+            if not emerging.empty:
+                viz = Visualizer()
+                fig = viz.create_value_comparison_chart(
+                    emerging.head(10), 'growth_potential', top_n=10
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No emerging neighborhoods identified with current criteria.")
+            
+            # Correlation analysis
+            st.subheader("📊 Metric Correlations")
+            metrics = [
+                'median_rent', 'median_income', 'affordability',
+                'amenity_score', 'transit_score', 'safety_score'
+            ]
             viz = Visualizer()
-            fig = viz.create_value_comparison_chart(
-                emerging.head(10), 'growth_potential', top_n=10
-            )
+            fig = viz.create_heatmap(neighborhoods_df, metrics)
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("No emerging neighborhoods identified with current criteria.")
-        
-        # Correlation analysis
-        st.subheader("📊 Metric Correlations")
-        metrics = [
-            'median_rent', 'median_income', 'affordability',
-            'amenity_score', 'transit_score', 'safety_score'
-        ]
-        viz = Visualizer()
-        fig = viz.create_heatmap(neighborhoods_df, metrics)
-        st.plotly_chart(fig, use_container_width=True)
+            st.info("💡 Enable Advanced Mode in the sidebar to see emerging neighborhoods and correlations.")
     
     # Tab 5: Predictions
     with tab5:
         st.header("Rental Demand Predictions")
         
-        st.info("🤖 Machine learning model predictions based on neighborhood characteristics")
+        if not advanced_mode:
+            st.info("💡 Enable Advanced Mode in the sidebar to access ML predictions and feature importance.")
+        else:
+            st.info("🤖 Machine learning model predictions based on neighborhood characteristics")
         
-        try:
-            predictor = RentalDemandPredictor()
-            
-            # Prepare features
-            feature_cols = [
-                'total_population', 'median_income', 'median_age',
-                'college_educated_pct', 'renter_pct', 'unemployment_rate',
-                'amenity_score', 'transit_score', 'safety_score', 'affordability'
-            ]
-            
-            X = neighborhoods_df[[col for col in feature_cols if col in neighborhoods_df.columns]]
-            y = neighborhoods_df['median_rent']
-            
-            # Train model
-            with st.spinner("Training prediction model..."):
-                metrics = predictor.train(X, y)
-            
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric("Model R² Score", f"{metrics['test_r2']:.3f}")
-            
-            with col2:
-                st.metric("Prediction Error (RMSE)", f"${metrics['test_rmse']:.0f}")
-            
-            with col3:
-                st.metric("Mean Absolute Error", f"${metrics['test_mae']:.0f}")
-            
-            # Feature importance
-            st.subheader("📊 Feature Importance")
-            importance_df = predictor.get_feature_importance()
-            
-            viz = Visualizer()
-            fig = viz.create_value_comparison_chart(
-                importance_df.rename(columns={'feature': 'name', 'importance': 'value_score'}),
-                'value_score',
-                top_n=10
-            )
-            fig.update_layout(title="Top 10 Most Important Features")
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Make predictions
-            st.subheader("🔮 Rent Predictions")
-            predictions_df = predictor.predict_price_range(X)
-            predictions_df['neighborhood'] = neighborhoods_df['name'].values
-            
-            st.dataframe(
-                predictions_df[['neighborhood', 'predicted_rent', 'lower_bound', 'upper_bound']].round(0),
-                use_container_width=True,
-                hide_index=True
-            )
-            
-        except Exception as e:
-            st.error(f"Error training model: {str(e)}")
-            st.info("Make sure you have enough data with required features.")
+        if advanced_mode:
+            try:
+                predictor = RentalDemandPredictor()
+                
+                # Prepare features
+                feature_cols = [
+                    'total_population', 'median_income', 'median_age',
+                    'college_educated_pct', 'renter_pct', 'unemployment_rate',
+                    'amenity_score', 'transit_score', 'safety_score', 'affordability'
+                ]
+                
+                X = neighborhoods_df[[col for col in feature_cols if col in neighborhoods_df.columns]]
+                y = neighborhoods_df['median_rent']
+                
+                # Train model
+                with st.spinner("Training prediction model..."):
+                    metrics = predictor.train(X, y)
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("Model R² Score", f"{metrics['test_r2']:.3f}")
+                
+                with col2:
+                    st.metric("Prediction Error (RMSE)", f"${metrics['test_rmse']:.0f}")
+                
+                with col3:
+                    st.metric("Mean Absolute Error", f"${metrics['test_mae']:.0f}")
+                
+                # Feature importance
+                st.subheader("📊 Feature Importance")
+                importance_df = predictor.get_feature_importance()
+                
+                viz = Visualizer()
+                fig = viz.create_value_comparison_chart(
+                    importance_df.rename(columns={'feature': 'name', 'importance': 'value_score'}),
+                    'value_score',
+                    top_n=10
+                )
+                fig.update_layout(title="Top 10 Most Important Features")
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Make predictions
+                st.subheader("🔮 Rent Predictions")
+                predictions_df = predictor.predict_price_range(X)
+                predictions_df['neighborhood'] = neighborhoods_df['name'].values
+                
+                st.dataframe(
+                    predictions_df[['neighborhood', 'predicted_rent', 'lower_bound', 'upper_bound']].round(0),
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+            except Exception as e:
+                st.error(f"Error training model: {str(e)}")
+                st.info("Make sure you have enough data with required features.")
     
     # Footer
     st.markdown("---")
