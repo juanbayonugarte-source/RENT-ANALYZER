@@ -1,0 +1,618 @@
+"""Main Streamlit application for Neighborhood Rental Value Analyzer."""
+import streamlit as st
+import pandas as pd
+import numpy as np
+from typing import Dict, List
+import sys
+import os
+
+# Add project root to path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from config import Config
+from data_collectors.census_collector import CensusDataCollector
+from data_collectors.fred_collector import FREDDataCollector
+from data_collectors.osm_collector import OSMDataCollector
+from data_collectors.city_data_collector import CityDataCollector
+from analysis.data_processor import DataProcessor
+from analysis.neighborhood_analyzer import NeighborhoodAnalyzer
+from models.rental_demand_predictor import RentalDemandPredictor
+from visualizations.visualizer import Visualizer
+
+def get_neighborhood_name(lat: float, lon: float, osm_collector) -> str:
+    """
+    Get neighborhood name from coordinates using reverse geocoding.
+    
+    Args:
+        lat: Latitude
+        lon: Longitude
+        osm_collector: OSM collector instance
+        
+    Returns:
+        Neighborhood name or default
+    """
+    try:
+        location = osm_collector.geolocator.reverse(f"{lat}, {lon}", language='en')
+        if location and location.raw.get('address'):
+            address = location.raw['address']
+            # Try to get neighborhood, suburb, or city district
+            neighborhood = (
+                address.get('neighbourhood') or 
+                address.get('suburb') or 
+                address.get('city_district') or
+                address.get('district') or
+                f"{address.get('city', 'Unknown')}"
+            )
+            return neighborhood
+    except Exception as e:
+        pass
+    return f"Area {lat:.3f},{lon:.3f}"
+
+# Page configuration
+st.set_page_config(
+    page_title="Neighborhood Rental Value Analyzer",
+    page_icon="🏘️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.5rem;
+        color: #1E3A8A;
+        font-weight: bold;
+        margin-bottom: 1rem;
+    }
+    .metric-card {
+        background-color: #F0F9FF;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #3B82F6;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+@st.cache_resource
+def initialize_collectors():
+    """Initialize data collectors."""
+    valid, missing = Config.validate()
+    
+    if not valid:
+        st.sidebar.warning(f"⚠️ Missing API keys: {', '.join(missing)}")
+        st.sidebar.info("Some features may be limited. Please add API keys to .env file.")
+    
+    census = CensusDataCollector()
+    fred = FREDDataCollector()
+    osm = OSMDataCollector()
+    city = CityDataCollector()
+    
+    return census, fred, osm, city, valid
+
+@st.cache_data
+def load_sample_data(city_selection="All California"):
+    """Load sample neighborhood data for demonstration."""
+    np.random.seed(42)
+    
+    # California neighborhoods by city
+    ca_neighborhoods = {
+        'Los Angeles': [
+            ("Hollywood", 34.0928, -118.3287),
+            ("Beverly Hills", 34.0736, -118.4004),
+            ("Santa Monica", 34.0195, -118.4912),
+            ("Downtown LA", 34.0522, -118.2437),
+            ("Venice", 33.9850, -118.4695),
+            ("Silver Lake", 34.0870, -118.2704),
+            ("Echo Park", 34.0780, -118.2607),
+            ("Pasadena", 34.1478, -118.1445),
+            ("West Hollywood", 34.0900, -118.3617),
+            ("Koreatown", 34.0579, -118.3009),
+            ("Los Feliz", 34.1071, -118.2828),
+            ("Culver City", 34.0211, -118.3965),
+            ("Manhattan Beach", 33.8847, -118.4109),
+            ("Long Beach", 33.7701, -118.1937),
+            ("Burbank", 34.1808, -118.3090),
+            ("Glendale", 34.1425, -118.2551),
+            ("Sherman Oaks", 34.1508, -118.4490),
+            ("Studio City", 34.1486, -118.3965),
+            ("Westwood", 34.0633, -118.4456),
+            ("Brentwood", 34.0536, -118.4772),
+        ],
+        'San Francisco': [
+            ("Mission District", 37.7599, -122.4148),
+            ("SoMa", 37.7749, -122.4194),
+            ("Castro", 37.7609, -122.4350),
+            ("Pacific Heights", 37.7931, -122.4358),
+            ("Marina District", 37.8024, -122.4381),
+            ("Nob Hill", 37.7919, -122.4155),
+            ("Chinatown", 37.7941, -122.4078),
+            ("North Beach", 37.8006, -122.4104),
+            ("Haight-Ashbury", 37.7692, -122.4481),
+            ("Russian Hill", 37.8003, -122.4200),
+            ("Richmond District", 37.7787, -122.4645),
+            ("Sunset District", 37.7479, -122.4822),
+            ("Potrero Hill", 37.7578, -122.3979),
+            ("Bernal Heights", 37.7418, -122.4157),
+            ("Glen Park", 37.7326, -122.4339),
+        ],
+        'San Diego': [
+            ("Gaslamp Quarter", 32.7115, -117.1597),
+            ("La Jolla", 32.8328, -117.2713),
+            ("Pacific Beach", 32.7967, -117.2357),
+            ("Mission Bay", 32.7642, -117.2267),
+            ("Hillcrest", 32.7486, -117.1664),
+            ("North Park", 32.7411, -117.1297),
+            ("Little Italy", 32.7209, -117.1698),
+            ("Ocean Beach", 32.7475, -117.2489),
+            ("Point Loma", 32.7341, -117.2407),
+            ("Del Mar", 32.9595, -117.2653),
+        ],
+        'San Jose': [
+            ("Downtown San Jose", 37.3382, -121.8863),
+            ("Willow Glen", 37.3044, -121.8896),
+            ("Almaden Valley", 37.2091, -121.8355),
+            ("Rose Garden", 37.3399, -121.9190),
+            ("Santana Row", 37.3207, -121.9483),
+            ("Japantown", 37.3469, -121.8950),
+            ("Cambrian Park", 37.2527, -121.9297),
+            ("Evergreen", 37.3155, -121.7906),
+        ],
+        'Oakland': [
+            ("Lake Merritt", 37.8044, -122.2712),
+            ("Rockridge", 37.8444, -122.2514),
+            ("Temescal", 37.8347, -122.2632),
+            ("Jack London Square", 37.7955, -122.2772),
+            ("Montclair", 37.8322, -122.2097),
+            ("Piedmont Avenue", 37.8197, -122.2458),
+        ],
+    }
+    
+    # Select neighborhoods based on user choice
+    if city_selection == "All California":
+        neighborhoods = []
+        for city, areas in ca_neighborhoods.items():
+            neighborhoods.extend([(f"{name} ({city})", lat, lon) for name, lat, lon in areas])
+    else:
+        neighborhoods = [(f"{name} ({city_selection})", lat, lon) 
+                        for name, lat, lon in ca_neighborhoods.get(city_selection, [])]
+    
+    n = len(neighborhoods)
+    names, lats, lons = zip(*neighborhoods) if neighborhoods else ([], [], [])
+    
+    data = {
+        'name': list(names),
+        'latitude': list(lats),
+        'longitude': list(lons),
+        'total_population': np.random.randint(5000, 50000, n),
+        'median_income': np.random.randint(40000, 150000, n),
+        'median_rent': np.random.randint(1000, 4000, n),
+        'median_age': np.random.randint(25, 45, n),
+        'college_educated_pct': np.random.uniform(20, 80, n),
+        'renter_pct': np.random.uniform(30, 90, n),
+        'unemployment_rate': np.random.uniform(2, 10, n),
+        'amenity_score': np.random.uniform(40, 95, n),
+        'transit_score': np.random.uniform(30, 95, n),
+        'safety_score': np.random.uniform(50, 95, n),
+        'growth_potential': np.random.uniform(40, 85, n),
+    }
+    
+    df = pd.DataFrame(data)
+    
+    # Calculate affordability
+    processor = DataProcessor()
+    df['affordability'] = df.apply(
+        lambda row: processor.calculate_affordability_index(
+            row['median_rent'], row['median_income']
+        ), axis=1
+    )
+    
+    # Calculate value scores
+    analyzer = NeighborhoodAnalyzer()
+    df = analyzer.rank_neighborhoods(df)
+    
+    return df
+
+def main():
+    """Main application function."""
+    
+    # Header
+    st.markdown('<p class="main-header">🏘️ Neighborhood Rental Value Analyzer</p>', 
+                unsafe_allow_html=True)
+    st.markdown("**Find the best neighborhoods for your budget and lifestyle**")
+    
+    # Initialize collectors
+    census, fred, osm, city, api_valid = initialize_collectors()
+    
+    # Sidebar
+    st.sidebar.title("🎯 Settings")
+    
+    # City selection
+    city_choice = st.sidebar.selectbox(
+        "Select California City/Region",
+        ["All California", "Los Angeles", "San Francisco", "San Diego", "San Jose", "Oakland"],
+        help="Choose which California city neighborhoods to analyze"
+    )
+    
+    # Mode selection
+    use_sample_data = st.sidebar.checkbox(
+        "Use Sample Data",
+        value=True,
+        help="Use sample data for demonstration"
+    )
+    
+    # Budget input
+    st.sidebar.subheader("Your Budget")
+    budget = st.sidebar.slider(
+        "Monthly Rent Budget ($)",
+        min_value=500,
+        max_value=5000,
+        value=2000,
+        step=100
+    )
+    
+    # Priority weights
+    st.sidebar.subheader("Your Priorities")
+    st.sidebar.markdown("*Adjust importance of each factor*")
+    
+    affordability_weight = st.sidebar.slider("Affordability", 0, 100, 30) / 100
+    amenities_weight = st.sidebar.slider("Amenities", 0, 100, 20) / 100
+    transit_weight = st.sidebar.slider("Transit Access", 0, 100, 20) / 100
+    safety_weight = st.sidebar.slider("Safety", 0, 100, 20) / 100
+    growth_weight = st.sidebar.slider("Growth Potential", 0, 100, 10) / 100
+    
+    # Normalize weights to sum to 1
+    total_weight = (affordability_weight + amenities_weight + 
+                   transit_weight + safety_weight + growth_weight)
+    
+    if total_weight > 0:
+        weights = {
+            'affordability': affordability_weight / total_weight,
+            'amenities': amenities_weight / total_weight,
+            'transit': transit_weight / total_weight,
+            'safety': safety_weight / total_weight,
+            'growth': growth_weight / total_weight
+        }
+    else:
+        weights = None
+    
+    # Load data
+    if use_sample_data:
+        with st.spinner(f"Loading {city_choice} data..."):
+            neighborhoods_df = load_sample_data(city_choice)
+    else:
+        st.info("🔧 Connect to real APIs by adding your API keys to the .env file")
+        neighborhoods_df = load_sample_data(city_choice)
+    
+    # Main content
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "📊 Overview", 
+        "🏆 Top Neighborhoods", 
+        "🔍 Detailed Analysis",
+        "📈 Market Trends",
+        "🤖 Predictions"
+    ])
+    
+    # Tab 1: Overview
+    with tab1:
+        st.header("Market Overview")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric(
+                "Average Rent",
+                f"${neighborhoods_df['median_rent'].mean():.0f}",
+                delta=f"±{neighborhoods_df['median_rent'].std():.0f}"
+            )
+        
+        with col2:
+            st.metric(
+                "Avg Value Score",
+                f"{neighborhoods_df['value_score'].mean():.1f}",
+                delta=f"Range: {neighborhoods_df['value_score'].min():.0f}-{neighborhoods_df['value_score'].max():.0f}"
+            )
+        
+        with col3:
+            affordable_count = (neighborhoods_df['median_rent'] <= budget).sum()
+            st.metric(
+                "Within Budget",
+                f"{affordable_count}",
+                delta=f"{affordable_count/len(neighborhoods_df)*100:.0f}%"
+            )
+        
+        with col4:
+            high_value = (neighborhoods_df['value_score'] >= 70).sum()
+            st.metric(
+                "High Value Options",
+                f"{high_value}",
+                delta=f"{high_value/len(neighborhoods_df)*100:.0f}%"
+            )
+        
+        st.markdown("---")
+        
+        # Visualizations
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("Affordability Analysis")
+            viz = Visualizer()
+            fig = viz.create_affordability_scatter(neighborhoods_df)
+            st.plotly_chart(fig, use_container_width=True)
+        
+        with col2:
+            st.subheader("Rent Distribution")
+            fig = viz.create_distribution_plot(neighborhoods_df, 'median_rent')
+            st.plotly_chart(fig, use_container_width=True)
+    
+    # Tab 2: Top Neighborhoods
+    with tab2:
+        st.header("Top Neighborhoods for Your Budget")
+        
+        analyzer = NeighborhoodAnalyzer()
+        
+        # Recalculate with user weights
+        if weights:
+            neighborhoods_df = analyzer.rank_neighborhoods(neighborhoods_df, weights)
+        
+        best_neighborhoods = analyzer.find_best_value_neighborhoods(
+            neighborhoods_df, budget, top_n=10
+        )
+        
+        if best_neighborhoods.empty:
+            st.warning(f"No neighborhoods found within ${budget} budget. Try increasing your budget.")
+        else:
+            st.success(f"Found {len(best_neighborhoods)} neighborhoods within your budget!")
+            
+            # Display top 5 in cards
+            st.subheader("🏆 Top 5 Recommendations")
+            
+            for idx, (_, neighborhood) in enumerate(best_neighborhoods.head(5).iterrows(), 1):
+                with st.container():
+                    col1, col2, col3, col4 = st.columns([3, 2, 2, 2])
+                    
+                    with col1:
+                        st.markdown(f"### #{idx} {neighborhood['name']}")
+                    
+                    with col2:
+                        st.metric("Rent", f"${neighborhood['median_rent']:.0f}")
+                    
+                    with col3:
+                        st.metric("Value Score", f"{neighborhood['value_score']:.1f}")
+                    
+                    with col4:
+                        st.metric("Affordability", f"{neighborhood['affordability']:.0f}")
+                    
+                    # Score breakdown
+                    col1, col2, col3, col4, col5 = st.columns(5)
+                    with col1:
+                        st.caption(f"🏠 Afford: {neighborhood['affordability']:.0f}")
+                    with col2:
+                        st.caption(f"🎯 Amenities: {neighborhood['amenity_score']:.0f}")
+                    with col3:
+                        st.caption(f"🚇 Transit: {neighborhood['transit_score']:.0f}")
+                    with col4:
+                        st.caption(f"🛡️ Safety: {neighborhood['safety_score']:.0f}")
+                    with col5:
+                        st.caption(f"📈 Growth: {neighborhood['growth_potential']:.0f}")
+                    
+                    st.markdown("---")
+            
+            # Comparison chart
+            st.subheader("📊 Value Comparison")
+            viz = Visualizer()
+            fig = viz.create_value_comparison_chart(best_neighborhoods, 'value_score', top_n=10)
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Data table
+            st.subheader("📋 Detailed Data")
+            display_cols = [
+                'name', 'median_rent', 'median_income', 'affordability',
+                'amenity_score', 'transit_score', 'safety_score',
+                'value_score', 'rank'
+            ]
+            st.dataframe(
+                best_neighborhoods[display_cols].round(1),
+                use_container_width=True,
+                hide_index=True
+            )
+    
+    # Tab 3: Detailed Analysis
+    with tab3:
+        st.header("Neighborhood Deep Dive")
+        
+        selected_neighborhood = st.selectbox(
+            "Select a neighborhood to analyze:",
+            neighborhoods_df['name'].tolist()
+        )
+        
+        neighborhood_data = neighborhoods_df[
+            neighborhoods_df['name'] == selected_neighborhood
+        ].iloc[0]
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("Characteristics")
+            
+            st.markdown(f"""
+            **Demographics:**
+            - Population: {neighborhood_data['total_population']:,.0f}
+            - Median Income: ${neighborhood_data['median_income']:,.0f}
+            - College Educated: {neighborhood_data['college_educated_pct']:.1f}%
+            - Median Age: {neighborhood_data['median_age']:.0f}
+            
+            **Housing:**
+            - Median Rent: ${neighborhood_data['median_rent']:,.0f}
+            - Renter Percentage: {neighborhood_data['renter_pct']:.1f}%
+            - Affordability Score: {neighborhood_data['affordability']:.0f}/100
+            """)
+        
+        with col2:
+            st.subheader("Scores Profile")
+            viz = Visualizer()
+            fig = viz.create_spider_chart(
+                neighborhood_data.to_dict(),
+                selected_neighborhood
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        
+        st.markdown("---")
+        
+        # Cost comparison
+        st.subheader("Cost Comparison")
+        col1, col2, col3 = st.columns(3)
+        
+        avg_rent = neighborhoods_df['median_rent'].mean()
+        rent_diff = neighborhood_data['median_rent'] - avg_rent
+        
+        with col1:
+            st.metric(
+                "Median Rent",
+                f"${neighborhood_data['median_rent']:,.0f}",
+                delta=f"${rent_diff:.0f} vs avg",
+                delta_color="inverse"
+            )
+        
+        with col2:
+            monthly_income = neighborhood_data['median_income'] / 12
+            rent_ratio = neighborhood_data['median_rent'] / monthly_income * 100
+            st.metric(
+                "Rent to Income",
+                f"{rent_ratio:.1f}%",
+                delta="Good" if rent_ratio <= 30 else "High",
+                delta_color="normal" if rent_ratio <= 30 else "inverse"
+            )
+        
+        with col3:
+            st.metric(
+                "Value Rank",
+                f"#{int(neighborhood_data['rank'])}",
+                delta=f"of {len(neighborhoods_df)}"
+            )
+    
+    # Tab 4: Market Trends
+    with tab4:
+        st.header("Market Trends & Insights")
+        
+        # Cost of living analysis
+        analyzer = NeighborhoodAnalyzer()
+        col_analysis = analyzer.analyze_cost_of_living(neighborhoods_df)
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("Average Rent", f"${col_analysis.get('average_rent', 0):.0f}")
+        
+        with col2:
+            st.metric(
+                "Rent Range",
+                f"${col_analysis.get('min_rent', 0):.0f} - ${col_analysis.get('max_rent', 0):.0f}"
+            )
+        
+        with col3:
+            st.metric(
+                "Affordable Options",
+                f"{col_analysis.get('affordable_pct', 0):.0f}%"
+            )
+        
+        st.markdown("---")
+        
+        # Emerging neighborhoods
+        st.subheader("🚀 Emerging Neighborhoods")
+        st.markdown("*High growth potential areas that may offer good value*")
+        
+        emerging = analyzer.identify_emerging_neighborhoods(neighborhoods_df)
+        
+        if not emerging.empty:
+            viz = Visualizer()
+            fig = viz.create_value_comparison_chart(
+                emerging.head(10), 'growth_potential', top_n=10
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No emerging neighborhoods identified with current criteria.")
+        
+        # Correlation analysis
+        st.subheader("📊 Metric Correlations")
+        metrics = [
+            'median_rent', 'median_income', 'affordability',
+            'amenity_score', 'transit_score', 'safety_score'
+        ]
+        viz = Visualizer()
+        fig = viz.create_heatmap(neighborhoods_df, metrics)
+        st.plotly_chart(fig, use_container_width=True)
+    
+    # Tab 5: Predictions
+    with tab5:
+        st.header("Rental Demand Predictions")
+        
+        st.info("🤖 Machine learning model predictions based on neighborhood characteristics")
+        
+        try:
+            predictor = RentalDemandPredictor()
+            
+            # Prepare features
+            feature_cols = [
+                'total_population', 'median_income', 'median_age',
+                'college_educated_pct', 'renter_pct', 'unemployment_rate',
+                'amenity_score', 'transit_score', 'safety_score', 'affordability'
+            ]
+            
+            X = neighborhoods_df[[col for col in feature_cols if col in neighborhoods_df.columns]]
+            y = neighborhoods_df['median_rent']
+            
+            # Train model
+            with st.spinner("Training prediction model..."):
+                metrics = predictor.train(X, y)
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Model R² Score", f"{metrics['test_r2']:.3f}")
+            
+            with col2:
+                st.metric("Prediction Error (RMSE)", f"${metrics['test_rmse']:.0f}")
+            
+            with col3:
+                st.metric("Mean Absolute Error", f"${metrics['test_mae']:.0f}")
+            
+            # Feature importance
+            st.subheader("📊 Feature Importance")
+            importance_df = predictor.get_feature_importance()
+            
+            viz = Visualizer()
+            fig = viz.create_value_comparison_chart(
+                importance_df.rename(columns={'feature': 'name', 'importance': 'value_score'}),
+                'value_score',
+                top_n=10
+            )
+            fig.update_layout(title="Top 10 Most Important Features")
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Make predictions
+            st.subheader("🔮 Rent Predictions")
+            predictions_df = predictor.predict_price_range(X)
+            predictions_df['neighborhood'] = neighborhoods_df['name'].values
+            
+            st.dataframe(
+                predictions_df[['neighborhood', 'predicted_rent', 'lower_bound', 'upper_bound']].round(0),
+                use_container_width=True,
+                hide_index=True
+            )
+            
+        except Exception as e:
+            st.error(f"Error training model: {str(e)}")
+            st.info("Make sure you have enough data with required features.")
+    
+    # Footer
+    st.markdown("---")
+    st.markdown("""
+    <div style='text-align: center; color: #6B7280;'>
+        <p>Neighborhood Rental Value Analyzer | Data sources: US Census, FRED, OpenStreetMap, City Open Data</p>
+        <p>⚠️ This tool provides estimates and should be used as a guide. Always verify information independently.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+if __name__ == "__main__":
+    main()
