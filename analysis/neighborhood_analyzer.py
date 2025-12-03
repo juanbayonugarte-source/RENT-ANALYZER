@@ -18,6 +18,7 @@ class NeighborhoodAnalyzer:
         transit: float,
         safety: float,
         growth: float = 50.0,
+        ocean: float = 50.0,
         weights: Dict[str, float] = None
     ) -> float:
         """
@@ -29,6 +30,7 @@ class NeighborhoodAnalyzer:
             transit: Transit score (0-100)
             safety: Safety score (0-100)
             growth: Growth potential score (0-100)
+            ocean: Ocean proximity score (0-100)
             weights: Custom weights for each factor
             
         Returns:
@@ -36,19 +38,21 @@ class NeighborhoodAnalyzer:
         """
         if weights is None:
             weights = {
-                'affordability': 0.30,
-                'amenities': 0.20,
-                'transit': 0.20,
-                'safety': 0.20,
-                'growth': 0.10
+                'affordability': 0.25,
+                'amenities': 0.15,
+                'transit': 0.15,
+                'safety': 0.15,
+                'growth': 0.10,
+                'ocean': 0.20
             }
         
         score = (
-            affordability * weights['affordability'] +
-            amenities * weights['amenities'] +
-            transit * weights['transit'] +
-            safety * weights['safety'] +
-            growth * weights['growth']
+            affordability * weights.get('affordability', 0.25) +
+            amenities * weights.get('amenities', 0.15) +
+            transit * weights.get('transit', 0.15) +
+            safety * weights.get('safety', 0.15) +
+            growth * weights.get('growth', 0.10) +
+            ocean * weights.get('ocean', 0.20)
         )
         
         return round(score, 2)
@@ -78,6 +82,7 @@ class NeighborhoodAnalyzer:
                 transit=row.get('transit_score', 50),
                 safety=row.get('safety_score', 50),
                 growth=row.get('growth_potential', 50),
+                ocean=row.get('ocean_proximity_score', 50),
                 weights=user_preferences
             ), axis=1
         )

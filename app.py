@@ -90,6 +90,33 @@ def initialize_collectors():
     
     return census, fred, osm, city, valid
 
+def calculate_ocean_distance(lat, lon):
+    """Calculate approximate distance to Pacific Ocean coastline in miles."""
+    from math import radians, sin, cos, sqrt, atan2
+    
+    # California coastal reference points (approximate)
+    coastal_points = [
+        (34.0195, -118.4912),  # Santa Monica
+        (32.7157, -117.1611),  # San Diego coast
+        (37.8080, -122.4858),  # San Francisco coast
+        (33.7701, -118.1937),  # Long Beach
+        (36.9741, -122.0308),  # Santa Cruz
+    ]
+    
+    def haversine_distance(lat1, lon1, lat2, lon2):
+        R = 3959  # Earth's radius in miles
+        lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
+        dlat = lat2 - lat1
+        dlon = lon2 - lon1
+        a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+        c = 2 * atan2(sqrt(a), sqrt(1-a))
+        return R * c
+    
+    # Find minimum distance to any coastal point
+    min_distance = min(haversine_distance(lat, lon, coast_lat, coast_lon) 
+                      for coast_lat, coast_lon in coastal_points)
+    return min_distance
+
 @st.cache_data(ttl=3600)
 def load_sample_data(city_selection="All California"):
     """Load sample neighborhood data for demonstration."""
@@ -199,6 +226,17 @@ def load_sample_data(city_selection="All California"):
     
     df = pd.DataFrame(data)
     
+    # Calculate distance to ocean
+    df['distance_to_ocean'] = df.apply(
+        lambda row: calculate_ocean_distance(row['latitude'], row['longitude']), axis=1
+    )
+    
+    # Calculate ocean proximity score (0-100, higher is closer)
+    # Score: 100 for < 1 mile, 90 for < 3 miles, decreasing to 20 for > 30 miles
+    df['ocean_proximity_score'] = df['distance_to_ocean'].apply(
+        lambda d: max(20, 100 - (d * 2.5)) if d <= 30 else 20
+    )
+    
     # Calculate affordability
     processor = DataProcessor()
     df['affordability'] = df.apply(
@@ -251,11 +289,12 @@ def main():
     st.sidebar.subheader("Your Priorities")
     st.sidebar.markdown("*Adjust importance of each factor*")
     
-    affordability_weight = st.sidebar.slider("Affordability", 0, 100, 30) / 100
-    amenities_weight = st.sidebar.slider("Amenities", 0, 100, 20) / 100
-    transit_weight = st.sidebar.slider("Transit Access", 0, 100, 20) / 100
-    safety_weight = st.sidebar.slider("Safety", 0, 100, 20) / 100
+    affordability_weight = st.sidebar.slider("Affordability", 0, 100, 25) / 100
+    amenities_weight = st.sidebar.slider("Amenities", 0, 100, 15) / 100
+    transit_weight = st.sidebar.slider("Transit Access", 0, 100, 15) / 100
+    safety_weight = st.sidebar.slider("Safety", 0, 100, 15) / 100
     growth_weight = st.sidebar.slider("Growth Potential", 0, 100, 10) / 100
+    ocean_weight = st.sidebar.slider("🌊 Ocean Proximity", 0, 100, 20) / 100
     
     # NEW FEATURE 3: Rent-to-Income Stress Test
     st.sidebar.markdown("---")
@@ -280,7 +319,7 @@ def main():
     
     # Normalize weights to sum to 1
     total_weight = (affordability_weight + amenities_weight + 
-                   transit_weight + safety_weight + growth_weight)
+                   transit_weight + safety_weight + growth_weight + ocean_weight)
     
     if total_weight > 0:
         weights = {
@@ -288,7 +327,8 @@ def main():
             'amenities': amenities_weight / total_weight,
             'transit': transit_weight / total_weight,
             'safety': safety_weight / total_weight,
-            'growth': growth_weight / total_weight
+            'growth': growth_weight / total_weight,
+            'ocean': ocean_weight / total_weight
         }
     else:
         weights = None
@@ -452,7 +492,7 @@ def main():
                         st.metric("Affordability", f"{neighborhood['affordability']:.0f}")
                     
                     # Score breakdown
-                    col1, col2, col3, col4, col5 = st.columns(5)
+                    col1, col2, col3, col4, col5, col6 = st.columns(6)
                     with col1:
                         st.caption(f"🏠 Afford: {neighborhood['affordability']:.0f}")
                     with col2:
@@ -463,6 +503,8 @@ def main():
                         st.caption(f"🛡️ Safety: {neighborhood['safety_score']:.0f}")
                     with col5:
                         st.caption(f"📈 Growth: {neighborhood['growth_potential']:.0f}")
+                    with col6:
+                        st.caption(f"🌊 Ocean: {neighborhood['ocean_proximity_score']:.0f}")
                     
                     # NEW FEATURE 3: Show stress test for each neighborhood
                     if user_monthly_income > 0:
@@ -603,6 +645,37 @@ def main():
                 f"#{int(neighborhood_data['rank'])}",
                 delta=f"of {len(neighborhoods_df)}"
             )
+        
+        # Ocean proximity info
+        if advanced_mode:
+            st.markdown("---")
+            st.subheader("🌊 Location & Environment")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                distance = neighborhood_data.get('distance_to_ocean', 0)
+                if distance < 1:
+                    proximity_label = "Beachfront"
+                elif distance < 3:
+                    proximity_label = "Very Close to Ocean"
+                elif distance < 10:
+                    proximity_label = "Near Ocean"
+                elif distance < 20:
+                    proximity_label = "Moderate Distance"
+                else:
+                    proximity_label = "Inland"
+                
+                st.metric(
+                    "Distance to Ocean",
+                    f"{distance:.1f} miles",
+                    delta=proximity_label
+                )
+            
+            with col2:
+                st.metric(
+                    "Ocean Proximity Score",
+                    f"{neighborhood_data.get('ocean_proximity_score', 0):.0f}/100"
+                )
     
     # Tab 4: Market Trends
     with tab4:
