@@ -90,6 +90,7 @@ def initialize_collectors():
     
     return census, fred, osm, city, valid
 
+@st.cache_data(ttl=3600)
 def load_sample_data(city_selection="All California"):
     """Load sample neighborhood data for demonstration."""
     np.random.seed(42)
