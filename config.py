@@ -28,7 +28,7 @@ class Config:
     CENSUS_API_KEY = _get_secret('CENSUS_API_KEY')
     FRED_API_KEY = _get_secret('FRED_API_KEY')
     CITY_DATA_API_KEY = _get_secret('CITY_DATA_API_KEY')
-    RAPIDAPI_KEY = _get_secret('RAPIDAPI_KEY')  # For Zillow data
+    REALTYMOLE_API_KEY = _get_secret('REALTYMOLE_API_KEY', '9772b19d1b0a425cbfef239bb982f00e')  # For rental data
     WALKSCORE_API_KEY = _get_secret('WALKSCORE_API_KEY')  # For Walk Score
     
     # Default settings
