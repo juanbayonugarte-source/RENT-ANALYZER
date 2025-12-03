@@ -267,9 +267,9 @@ def main():
     user_monthly_income = st.sidebar.number_input(
         "Your Monthly Income ($)",
         min_value=0,
-        max_value=50000,
+        max_value=20000,
         value=5000,
-        step=500,
+        step=100,
         help="Enter your gross monthly income"
     )
     
