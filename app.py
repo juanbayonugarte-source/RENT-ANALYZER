@@ -242,8 +242,8 @@ def main():
     budget = st.sidebar.slider(
         "Monthly Rent Budget ($)",
         min_value=500,
-        max_value=5000,
-        value=2000,
+        max_value=20000,
+        value=5000,
         step=100
     )
     
