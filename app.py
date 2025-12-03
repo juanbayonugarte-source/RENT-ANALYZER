@@ -14,6 +14,8 @@ from data_collectors.census_collector import CensusDataCollector
 from data_collectors.fred_collector import FREDDataCollector
 from data_collectors.osm_collector import OSMDataCollector
 from data_collectors.city_data_collector import CityDataCollector
+from data_collectors.zillow_collector import ZillowDataCollector
+from data_collectors.walkscore_collector import WalkScoreCollector
 from analysis.data_processor import DataProcessor
 from analysis.neighborhood_analyzer import NeighborhoodAnalyzer
 from models.rental_demand_predictor import RentalDemandPredictor
@@ -87,8 +89,10 @@ def initialize_collectors():
     fred = FREDDataCollector()
     osm = OSMDataCollector()
     city = CityDataCollector()
+    zillow = ZillowDataCollector()
+    walkscore = WalkScoreCollector()
     
-    return census, fred, osm, city, valid
+    return census, fred, osm, city, zillow, walkscore, valid
 
 def calculate_ocean_distance(lat, lon):
     """Calculate approximate distance to Pacific Ocean coastline in miles."""
@@ -256,7 +260,7 @@ def main():
     st.markdown("**Find the best neighborhoods for your budget and lifestyle**")
     
     # Initialize collectors
-    census, fred, osm, city, api_valid = initialize_collectors()
+    census, fred, osm, city, zillow, walkscore, api_valid = initialize_collectors()
     
     # Sidebar
     st.sidebar.title("🎯 Settings")

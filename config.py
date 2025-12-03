@@ -28,6 +28,8 @@ class Config:
     CENSUS_API_KEY = _get_secret('CENSUS_API_KEY')
     FRED_API_KEY = _get_secret('FRED_API_KEY')
     CITY_DATA_API_KEY = _get_secret('CITY_DATA_API_KEY')
+    RAPIDAPI_KEY = _get_secret('RAPIDAPI_KEY')  # For Zillow data
+    WALKSCORE_API_KEY = _get_secret('WALKSCORE_API_KEY')  # For Walk Score
     
     # Default settings
     DEFAULT_STATE = os.getenv('DEFAULT_STATE', 'CA')
