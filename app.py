@@ -3,50 +3,108 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from typing import Dict, List
-import sys
-import os
+import plotly.express as px
+import plotly.graph_objects as go
 
-# Add project root to path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-from config import Config
-from data_collectors.census_collector import CensusDataCollector
-from data_collectors.fred_collector import FREDDataCollector
-from data_collectors.osm_collector import OSMDataCollector
-from data_collectors.city_data_collector import CityDataCollector
-from analysis.data_processor import DataProcessor
-from analysis.neighborhood_analyzer import NeighborhoodAnalyzer
-from models.rental_demand_predictor import RentalDemandPredictor
-from visualizations.visualizer import Visualizer
-
-def get_neighborhood_name(lat: float, lon: float, osm_collector) -> str:
-    """
-    Get neighborhood name from coordinates using reverse geocoding.
+# Simplified helper classes (replacing external modules)
+class DataProcessor:
+    """Simple data processor for affordability calculations."""
     
-    Args:
-        lat: Latitude
-        lon: Longitude
-        osm_collector: OSM collector instance
+    def calculate_affordability_index(self, rent: float, income: float) -> float:
+        """Calculate affordability score (0-100)."""
+        if income <= 0:
+            return 0
+        monthly_income = income / 12
+        rent_to_income_ratio = rent / monthly_income
         
-    Returns:
-        Neighborhood name or default
-    """
-    try:
-        location = osm_collector.geolocator.reverse(f"{lat}, {lon}", language='en')
-        if location and location.raw.get('address'):
-            address = location.raw['address']
-            # Try to get neighborhood, suburb, or city district
-            neighborhood = (
-                address.get('neighbourhood') or 
-                address.get('suburb') or 
-                address.get('city_district') or
-                address.get('district') or
-                f"{address.get('city', 'Unknown')}"
-            )
-            return neighborhood
-    except Exception as e:
-        pass
-    return f"Area {lat:.3f},{lon:.3f}"
+        # Score based on 30% rule (lower ratio = higher score)
+        if rent_to_income_ratio <= 0.25:
+            return 100
+        elif rent_to_income_ratio <= 0.30:
+            return 85
+        elif rent_to_income_ratio <= 0.35:
+            return 70
+        elif rent_to_income_ratio <= 0.40:
+            return 50
+        else:
+            return max(0, 100 - (rent_to_income_ratio - 0.3) * 200)
+
+class NeighborhoodAnalyzer:
+    """Simple neighborhood analyzer."""
+    
+    def rank_neighborhoods(self, df: pd.DataFrame, weights: Dict = None) -> pd.DataFrame:
+        """Rank neighborhoods by value score."""
+        if weights is None:
+            weights = {
+                'affordability': 0.3,
+                'amenities': 0.2,
+                'transit': 0.2,
+                'safety': 0.2,
+                'growth': 0.1
+            }
+        
+        # Calculate weighted value score
+        df['value_score'] = (
+            df['affordability'] * weights['affordability'] +
+            df['amenity_score'] * weights['amenities'] +
+            df['transit_score'] * weights['transit'] +
+            df['safety_score'] * weights['safety'] +
+            df['growth_potential'] * weights['growth']
+        )
+        
+        df = df.sort_values('value_score', ascending=False)
+        df['rank'] = range(1, len(df) + 1)
+        
+        return df
+    
+    def find_best_value_neighborhoods(self, df: pd.DataFrame, budget: float, top_n: int = 10) -> pd.DataFrame:
+        """Find neighborhoods within budget."""
+        affordable = df[df['median_rent'] <= budget].copy()
+        return affordable.head(top_n)
+
+class Visualizer:
+    """Simple visualizer using Plotly."""
+    
+    def create_affordability_scatter(self, df: pd.DataFrame):
+        """Create scatter plot of rent vs affordability."""
+        fig = px.scatter(
+            df,
+            x='median_rent',
+            y='affordability',
+            size='value_score',
+            color='value_score',
+            hover_data=['name'],
+            labels={'median_rent': 'Monthly Rent ($)', 'affordability': 'Affordability Score'},
+            color_continuous_scale='Viridis'
+        )
+        fig.update_layout(height=400)
+        return fig
+    
+    def create_distribution_plot(self, df: pd.DataFrame, column: str):
+        """Create distribution histogram."""
+        fig = px.histogram(
+            df,
+            x=column,
+            nbins=30,
+            labels={column: column.replace('_', ' ').title()}
+        )
+        fig.update_layout(height=400)
+        return fig
+    
+    def create_value_comparison_chart(self, df: pd.DataFrame, metric: str, top_n: int = 10):
+        """Create bar chart for value comparison."""
+        data = df.head(top_n).copy()
+        fig = px.bar(
+            data,
+            x=metric,
+            y='name',
+            orientation='h',
+            color=metric,
+            labels={metric: metric.replace('_', ' ').title(), 'name': 'Neighborhood'},
+            color_continuous_scale='Blues'
+        )
+        fig.update_layout(height=400, showlegend=False)
+        return fig
 
 # Page configuration
 st.set_page_config(
@@ -74,21 +132,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-@st.cache_resource
-def initialize_collectors():
-    """Initialize data collectors."""
-    valid, missing = Config.validate()
-    
-    if not valid:
-        st.sidebar.warning(f"Missing API keys: {', '.join(missing)}")
-        st.sidebar.info("Some features may be limited. Please add API keys to .env file.")
-    
-    census = CensusDataCollector()
-    fred = FREDDataCollector()
-    osm = OSMDataCollector()
-    city = CityDataCollector()
-    
-    return census, fred, osm, city, valid
+# Removed external data collectors - using sample data only
 
 @st.cache_data
 def load_sample_data(city_selection="All California"):
@@ -221,9 +265,6 @@ def main():
                 unsafe_allow_html=True)
     st.markdown("**Find the best neighborhoods for your budget and lifestyle**")
     
-    # Initialize collectors
-    census, fred, osm, city, api_valid = initialize_collectors()
-    
     # Sidebar
     st.sidebar.title("Settings")
     
@@ -232,13 +273,6 @@ def main():
         "Select California City/Region",
         ["All California", "Los Angeles", "San Francisco", "San Diego", "San Jose", "Oakland"],
         help="Choose which California city neighborhoods to analyze"
-    )
-    
-    # Mode selection
-    use_sample_data = st.sidebar.checkbox(
-        "Use Sample Data",
-        value=True,
-        help="Use sample data for demonstration"
     )
     
     # Budget input
@@ -277,11 +311,7 @@ def main():
         weights = None
     
     # Load data
-    if use_sample_data:
-        with st.spinner(f"Loading {city_choice} data..."):
-            neighborhoods_df = load_sample_data(city_choice)
-    else:
-        st.info("Connect to real APIs by adding your API keys to the .env file")
+    with st.spinner(f"Loading {city_choice} data..."):
         neighborhoods_df = load_sample_data(city_choice)
     
     # Main content
