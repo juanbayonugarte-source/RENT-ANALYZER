@@ -80,7 +80,7 @@ def initialize_collectors():
     valid, missing = Config.validate()
     
     if not valid:
-        st.sidebar.warning(f"⚠️ Missing API keys: {', '.join(missing)}")
+        st.sidebar.warning(f"Missing API keys: {', '.join(missing)}")
         st.sidebar.info("Some features may be limited. Please add API keys to .env file.")
     
     census = CensusDataCollector()
@@ -217,7 +217,7 @@ def main():
     """Main application function."""
     
     # Header
-    st.markdown('<p class="main-header">🏘️ Neighborhood Rental Value Analyzer</p>', 
+    st.markdown('<p class="main-header">Neighborhood Rental Value Analyzer</p>', 
                 unsafe_allow_html=True)
     st.markdown("**Find the best neighborhoods for your budget and lifestyle**")
     
@@ -225,7 +225,7 @@ def main():
     census, fred, osm, city, api_valid = initialize_collectors()
     
     # Sidebar
-    st.sidebar.title("🎯 Settings")
+    st.sidebar.title("Settings")
     
     # City selection
     city_choice = st.sidebar.selectbox(
@@ -281,16 +281,13 @@ def main():
         with st.spinner(f"Loading {city_choice} data..."):
             neighborhoods_df = load_sample_data(city_choice)
     else:
-        st.info("🔧 Connect to real APIs by adding your API keys to the .env file")
+        st.info("Connect to real APIs by adding your API keys to the .env file")
         neighborhoods_df = load_sample_data(city_choice)
     
     # Main content
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📊 Overview", 
-        "🏆 Top Neighborhoods", 
-        "🔍 Detailed Analysis",
-        "📈 Market Trends",
-        "🤖 Predictions"
+    tab1, tab2 = st.tabs([
+        "Overview", 
+        "Top Neighborhoods"
     ])
     
     # Tab 1: Overview
@@ -364,8 +361,26 @@ def main():
         else:
             st.success(f"Found {len(best_neighborhoods)} neighborhoods within your budget!")
             
+            # Visualization charts
+            st.subheader("Best Neighborhood Analysis")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**Value Score Comparison**")
+                viz = Visualizer()
+                fig = viz.create_value_comparison_chart(best_neighborhoods.head(10), 'value_score', top_n=10)
+                st.plotly_chart(fig, use_container_width=True)
+            
+            with col2:
+                st.markdown("**Rent vs Affordability**")
+                fig = viz.create_affordability_scatter(best_neighborhoods.head(10))
+                st.plotly_chart(fig, use_container_width=True)
+            
+            st.markdown("---")
+            
             # Display top 5 in cards
-            st.subheader("🏆 Top 5 Recommendations")
+            st.subheader("Top 5 Recommendations")
             
             for idx, (_, neighborhood) in enumerate(best_neighborhoods.head(5).iterrows(), 1):
                 with st.container():
@@ -386,26 +401,20 @@ def main():
                     # Score breakdown
                     col1, col2, col3, col4, col5 = st.columns(5)
                     with col1:
-                        st.caption(f"🏠 Afford: {neighborhood['affordability']:.0f}")
+                        st.caption(f"Affordability: {neighborhood['affordability']:.0f}")
                     with col2:
-                        st.caption(f"🎯 Amenities: {neighborhood['amenity_score']:.0f}")
+                        st.caption(f"Amenities: {neighborhood['amenity_score']:.0f}")
                     with col3:
-                        st.caption(f"🚇 Transit: {neighborhood['transit_score']:.0f}")
+                        st.caption(f"Transit: {neighborhood['transit_score']:.0f}")
                     with col4:
-                        st.caption(f"🛡️ Safety: {neighborhood['safety_score']:.0f}")
+                        st.caption(f"Safety: {neighborhood['safety_score']:.0f}")
                     with col5:
-                        st.caption(f"📈 Growth: {neighborhood['growth_potential']:.0f}")
+                        st.caption(f"Growth: {neighborhood['growth_potential']:.0f}")
                     
                     st.markdown("---")
             
-            # Comparison chart
-            st.subheader("📊 Value Comparison")
-            viz = Visualizer()
-            fig = viz.create_value_comparison_chart(best_neighborhoods, 'value_score', top_n=10)
-            st.plotly_chart(fig, use_container_width=True)
-            
             # Data table
-            st.subheader("📋 Detailed Data")
+            st.subheader("Detailed Data")
             display_cols = [
                 'name', 'median_rent', 'median_income', 'affordability',
                 'amenity_score', 'transit_score', 'safety_score',
@@ -417,200 +426,12 @@ def main():
                 hide_index=True
             )
     
-    # Tab 3: Detailed Analysis
-    with tab3:
-        st.header("Neighborhood Deep Dive")
-        
-        selected_neighborhood = st.selectbox(
-            "Select a neighborhood to analyze:",
-            neighborhoods_df['name'].tolist()
-        )
-        
-        neighborhood_data = neighborhoods_df[
-            neighborhoods_df['name'] == selected_neighborhood
-        ].iloc[0]
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("Characteristics")
-            
-            st.markdown(f"""
-            **Demographics:**
-            - Population: {neighborhood_data['total_population']:,.0f}
-            - Median Income: ${neighborhood_data['median_income']:,.0f}
-            - College Educated: {neighborhood_data['college_educated_pct']:.1f}%
-            - Median Age: {neighborhood_data['median_age']:.0f}
-            
-            **Housing:**
-            - Median Rent: ${neighborhood_data['median_rent']:,.0f}
-            - Renter Percentage: {neighborhood_data['renter_pct']:.1f}%
-            - Affordability Score: {neighborhood_data['affordability']:.0f}/100
-            """)
-        
-        with col2:
-            st.subheader("Scores Profile")
-            viz = Visualizer()
-            fig = viz.create_spider_chart(
-                neighborhood_data.to_dict(),
-                selected_neighborhood
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        
-        st.markdown("---")
-        
-        # Cost comparison
-        st.subheader("Cost Comparison")
-        col1, col2, col3 = st.columns(3)
-        
-        avg_rent = neighborhoods_df['median_rent'].mean()
-        rent_diff = neighborhood_data['median_rent'] - avg_rent
-        
-        with col1:
-            st.metric(
-                "Median Rent",
-                f"${neighborhood_data['median_rent']:,.0f}",
-                delta=f"${rent_diff:.0f} vs avg",
-                delta_color="inverse"
-            )
-        
-        with col2:
-            monthly_income = neighborhood_data['median_income'] / 12
-            rent_ratio = neighborhood_data['median_rent'] / monthly_income * 100
-            st.metric(
-                "Rent to Income",
-                f"{rent_ratio:.1f}%",
-                delta="Good" if rent_ratio <= 30 else "High",
-                delta_color="normal" if rent_ratio <= 30 else "inverse"
-            )
-        
-        with col3:
-            st.metric(
-                "Value Rank",
-                f"#{int(neighborhood_data['rank'])}",
-                delta=f"of {len(neighborhoods_df)}"
-            )
-    
-    # Tab 4: Market Trends
-    with tab4:
-        st.header("Market Trends & Insights")
-        
-        # Cost of living analysis
-        analyzer = NeighborhoodAnalyzer()
-        col_analysis = analyzer.analyze_cost_of_living(neighborhoods_df)
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric("Average Rent", f"${col_analysis.get('average_rent', 0):.0f}")
-        
-        with col2:
-            st.metric(
-                "Rent Range",
-                f"${col_analysis.get('min_rent', 0):.0f} - ${col_analysis.get('max_rent', 0):.0f}"
-            )
-        
-        with col3:
-            st.metric(
-                "Affordable Options",
-                f"{col_analysis.get('affordable_pct', 0):.0f}%"
-            )
-        
-        st.markdown("---")
-        
-        # Emerging neighborhoods
-        st.subheader("🚀 Emerging Neighborhoods")
-        st.markdown("*High growth potential areas that may offer good value*")
-        
-        emerging = analyzer.identify_emerging_neighborhoods(neighborhoods_df)
-        
-        if not emerging.empty:
-            viz = Visualizer()
-            fig = viz.create_value_comparison_chart(
-                emerging.head(10), 'growth_potential', top_n=10
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No emerging neighborhoods identified with current criteria.")
-        
-        # Correlation analysis
-        st.subheader("📊 Metric Correlations")
-        metrics = [
-            'median_rent', 'median_income', 'affordability',
-            'amenity_score', 'transit_score', 'safety_score'
-        ]
-        viz = Visualizer()
-        fig = viz.create_heatmap(neighborhoods_df, metrics)
-        st.plotly_chart(fig, use_container_width=True)
-    
-    # Tab 5: Predictions
-    with tab5:
-        st.header("Rental Demand Predictions")
-        
-        st.info("🤖 Machine learning model predictions based on neighborhood characteristics")
-        
-        try:
-            predictor = RentalDemandPredictor()
-            
-            # Prepare features
-            feature_cols = [
-                'total_population', 'median_income', 'median_age',
-                'college_educated_pct', 'renter_pct', 'unemployment_rate',
-                'amenity_score', 'transit_score', 'safety_score', 'affordability'
-            ]
-            
-            X = neighborhoods_df[[col for col in feature_cols if col in neighborhoods_df.columns]]
-            y = neighborhoods_df['median_rent']
-            
-            # Train model
-            with st.spinner("Training prediction model..."):
-                metrics = predictor.train(X, y)
-            
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric("Model R² Score", f"{metrics['test_r2']:.3f}")
-            
-            with col2:
-                st.metric("Prediction Error (RMSE)", f"${metrics['test_rmse']:.0f}")
-            
-            with col3:
-                st.metric("Mean Absolute Error", f"${metrics['test_mae']:.0f}")
-            
-            # Feature importance
-            st.subheader("📊 Feature Importance")
-            importance_df = predictor.get_feature_importance()
-            
-            viz = Visualizer()
-            fig = viz.create_value_comparison_chart(
-                importance_df.rename(columns={'feature': 'name', 'importance': 'value_score'}),
-                'value_score',
-                top_n=10
-            )
-            fig.update_layout(title="Top 10 Most Important Features")
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Make predictions
-            st.subheader("🔮 Rent Predictions")
-            predictions_df = predictor.predict_price_range(X)
-            predictions_df['neighborhood'] = neighborhoods_df['name'].values
-            
-            st.dataframe(
-                predictions_df[['neighborhood', 'predicted_rent', 'lower_bound', 'upper_bound']].round(0),
-                use_container_width=True,
-                hide_index=True
-            )
-            
-        except Exception as e:
-            st.error(f"Error training model: {str(e)}")
-            st.info("Make sure you have enough data with required features.")
-    
     # Footer
     st.markdown("---")
     st.markdown("""
     <div style='text-align: center; color: #6B7280;'>
         <p>Neighborhood Rental Value Analyzer | Data sources: US Census, FRED, OpenStreetMap, City Open Data</p>
-        <p>⚠️ This tool provides estimates and should be used as a guide. Always verify information independently.</p>
+        <p>This tool provides estimates and should be used as a guide. Always verify information independently.</p>
     </div>
     """, unsafe_allow_html=True)
 
