@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+rental_data.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Distribution
+build/
+dist/
+*.egg-info/
+
+# Logs
+*.log
+
+# Environment variables
+.env
+.env.local
